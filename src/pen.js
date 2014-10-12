@@ -1,4 +1,5 @@
 /*! Licensed under MIT, https://github.com/sofish/pen */
+
 (function(root, doc) {
 
   var Pen, debugMode, selection, utils = {};
@@ -33,11 +34,14 @@
 
   // type detect
   utils.is = function(obj, type) {
+    // Only for built in types. [Function, String, RegExp, Object, Array, Number]
     return toString.call(obj).slice(8, -1) === type;
   };
 
   utils.forEach = function(obj, iterator, arrayLike) {
     if (!obj) return;
+    // When arrayLike not exist, arrayLike must be undefined.
+    // This is examely strange.
     if (arrayLike == null) arrayLike = utils.is(obj, 'Array');
     if (arrayLike) {
       for (var i = 0, l = obj.length; i < l; i++) iterator(obj[i], i, obj);
@@ -49,6 +53,7 @@
   };
 
   // copy props from a obj
+  // No need to use deep copy?
   utils.copy = function(defaults, source) {
     utils.forEach(source, function (value, key) {
       defaults[key] = utils.is(value, 'Object') ? utils.copy({}, value) :
@@ -60,7 +65,9 @@
   // log
   utils.log = function(message, force) {
     if (debugMode || force)
-      console.log('%cPEN DEBUGGER: %c' + message, 'font-family:arial,sans-serif;color:#1abf89;line-height:2em;', 'font-family:cursor,monospace;color:#333;');
+      console.log('%cPEN DEBUGGER: %c' + message,
+        'font-family:arial,sans-serif;color:#1abf89;line-height:2em;',
+        'font-family:cursor,monospace;color:#333;');
   };
 
   utils.delayExec = function (fn) {
@@ -92,7 +99,7 @@
     };
 
     // user-friendly config
-    if (config.nodeType === 1) {
+    if (config.nodeType && config.nodeType === 1) {
       defaults.editor = config;
     } else if (config.match && config.match(/^#[\S]+$/)) {
       defaults.editor = doc.getElementById(config.slice(1));
@@ -136,6 +143,18 @@
     var editor = ctx.config.editor;
 
     ctx._placeholder = editor.getAttribute('data-placeholder');
+
+    // listen for placeholder
+    addListener(ctx, editor, 'focus', function() {
+      if (ctx.isEmpty()) lineBreak(ctx, true);
+      editor.classList.remove('pen-placeholder');
+    });
+
+    addListener(ctx, editor, 'blur', function() {
+      ctx.placeholder();
+      ctx.checkContentChange();
+    });
+
     ctx.placeholder();
   }
 
@@ -254,17 +273,6 @@
         if (e.which === 13) return createlink(e.target);
       };
 
-    });
-
-    // listen for placeholder
-    addListener(ctx, editor, 'focus', function() {
-      if (ctx.isEmpty()) lineBreak(ctx, true);
-      editor.classList.remove('pen-placeholder');
-    });
-
-    addListener(ctx, editor, 'blur', function() {
-      ctx.placeholder();
-      ctx.checkContentChange();
     });
 
     // listen for paste and clear style
@@ -457,8 +465,7 @@
   Pen.prototype.isEmpty = function(node) {
     node = node || this.config.editor;
     if (node.classList.contains('pen-placeholder')) return true;
-    var content = node.textContent && node.textContent.trim();
-    return !content && !node.querySelectorAll('img').length;
+    return !node.childNodes.length;
   };
 
   Pen.prototype.getContent = function() {
