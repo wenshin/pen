@@ -6,6 +6,7 @@
   var Utils = win.Utils = {};
 
   Utils.Event = {
+    selection: doc.getSelection(),
     _keyMap: {
       '96': '`', '62': '>', '49': '1', '46': '.', '45': '-', '42': '*', '35': '#',
       '32': 'Space', '13': 'Enter', '9': 'Tab', '27': 'Esc', '8': 'Backspace',
@@ -49,7 +50,7 @@
 
     trigger: function () {},
 
-    // 给event对象扩展pressing, key函数
+    // 给event对象扩展pressing函数, key、range属性
     extend: function (e) {
       var upper = this;
       var code = e.keyCode || e.which;
@@ -57,6 +58,7 @@
       e.pressing = function (keyName) {
         return upper._pressing(code, keyName);
       };
+      e.range = this.selection.getRangeAt(0);
       return e;
     },
     _pressing: function ( code, keyName ) {
@@ -65,7 +67,7 @@
   };
 
 
-  Utils.dom = {
+  Utils.Dom = {
     _nodeMap: {
       1: 'ELEMENT_NODE',
       2: 'ATTRIBUTE_NODE',
@@ -88,8 +90,7 @@
 
   // markdown automd obj
   var automd = win.automd = {
-    selection: doc.getSelection(),
-    blockTag: {'li': 1, 'blockquote': 1, 'pre': 1}
+    selection: doc.getSelection()
   };
 
   // return valid markdown syntax
@@ -109,16 +110,6 @@
     } else if ( declare.match(/(?:\.|\*|\-){3,}/) ) {
       return 'inserthorizontalrule';
     }
-
-    return null;
-  };
-
-  // parse command
-  automd.parse1 = function(e) {
-    e = Utils.Event.extend(e);
-    var range = this.selection.getRangeAt(0);
-    // make cmd
-    if ( e.key ) this.stack.push(e.key);
 
     return null;
   };
@@ -156,30 +147,36 @@
   //    但是不同平台和不同版本可能不一致!
   // 2. 输入汉字可以用空格结尾，也可以用鼠标点击结尾，鼠标点击结尾就没有keyup事件
 
-  // init automd
+
   automd.init = function(pen) {
     // Just triggered input method in english mode,
     // But Space can triggered when Chinese Mode
 
     var upper = this;
     pen.on('keypress', function(e) {
-      var declare, cmd;
-      var range = upper.selection.getRangeAt(0);
-      var node = range.startContainer;
       e = Utils.Event.extend(e);
+      var declare, cmd;
+      var node = e.range.startContainer;
 
-      if ( e.pressing('Space') && Utils.dom.isNode(node.nodeType, 'TEXT_NODE') ) {
-        declare = node.textContent.slice(0, range.startOffset).trim();
+      if ( e.pressing('Space') && Utils.Dom.isNode(node.nodeType, 'TEXT_NODE') ) {
+        declare = node.textContent.slice(0, e.range.startOffset).trim();
         cmd = automd.parse(declare);
         if (cmd) {
           // Prevent to input Space
           e.preventDefault();
           pen.execCommand(cmd);
-          automd._clearDeclaration();
+          automd._clearDeclaration(e);
         }
       }
 
-      // TODO: pre, blockquote, ul, ol等元素回车不生成新的p块
+      // TODO:
+      //   2. =====, ----- 及时显示
+
+      // Tips:
+      //   1. Pre, Blockquote 标签模块内换行是使用shift+enter(windows，linux)
+      //   2. ul,ol 第一次Enter是在ul内新建一个li，马上再按一次Enter这退出当前ul区域。
+      //      Shift+Enter是在li元素内换行
+
       // if ( e.pressing('Enter') ) {
       //   if ( node.parentElement )
       //     e.preventDefault();
