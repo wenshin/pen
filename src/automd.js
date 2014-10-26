@@ -13,7 +13,7 @@
       '16': 'Shift', '17': 'Control', '18': 'Alt'
     },
 
-    on: (function() {
+    on: (function(elem, type, handler) {
       if ( doc.addEventListener ) {
         // for except IE
         return function (elem, type, handler) {
@@ -32,7 +32,7 @@
       }
     })(),
 
-    off: (function () {
+    off: (function (elem, type, handler) {
       if ( doc.removeEventListener ) {
         return function (elem, type, handler) {
           elem.removeEventListener(type, handler, false);
@@ -82,9 +82,94 @@
       11: 'DOCUMENT_FRAGMENT_NODE',
       12: 'NOTATION_NODE'
     },
-    isNode: function (nodeType, name) {
-      return this._nodeMap[nodeType] === name;
+    isNode: function (node, name) {
+      var nodeName = this._nodeMap[node.nodeType] || node.nodeName;
+      return this._nodeMap[node.nodeType] === name;
     }
+  };
+
+  Utils.Log = {
+    print: function(msg, type, force) {
+      if ( Array.isArray(msg) ) {
+        msg = msg.join(''); }
+      type = type || 'log';
+      if (force){
+        console[type]('%c[AutoMD]: ' + msg,
+          'font-family:arial,sans-serif;color:#1abf89;line-height:2em;');
+      }
+    }
+  };
+
+
+  var Editor = function(elem) {
+    this.elem = elem;
+  };
+
+  Editor.exec = function(cmd, value) {
+    if ( !doc.queryCommandEnabled(cmd) ) {
+      Utils.Log.print(['The Command [', cmd, '] not exist.'], 'error');
+      return false;
+    }
+    value = value || null;
+    doc.execCommand(cmd, false, value);
+    return doc.queryCommandState(cmd); // true success, false fail
+  };
+
+  Editor.prototype.on = function(eventType, handler) {
+    Utils.Event.on(this.elem, eventType, handler);
+  };
+
+  Editor.prototype.off = function(eventType, handler) {
+    Utils.Event.off(this.elem, eventType, handler);
+  };
+
+
+  Editor.prototype.bold = function() {
+    // Tips:
+    //   不同的浏览器该命令生成的标签会不一致，chrome、safari 生成b
+    //   firfox 生成 span，IE、Opera 生成 strong
+    //   在CSS设置样式时需要注意！！
+    return Editor.exec('bold');
+  };
+
+  Editor.prototype.text = function(type, value) {
+    // Usage:
+    // editor.text('backcolor', '#fff')
+    // editor.text('forecolor', '#fff')
+    // editor.text('fontname', 'Arial')
+    // editor.text('indent')
+    // editor.text('outdent')
+    // editor.text('italic')
+    // editor.text('underline')
+    // editor.text('justifycenter')
+    // editor.text('justifyleft')
+    // editor.text('fontsize', '1')。fontsize 的值支持1-7
+    return Editor.exec(type, value);
+  };
+
+  Editor.prototype.insert = function(tag, value) {
+    // Usage:
+    //   editor.insert('img', 'url')
+    //   editor.insert('hr')
+    //   editor.insert('ol')
+    //   editor.insert('ul')
+    //   editor.insert('p')
+    var tagCmdMap = {
+      hr: 'horizontalrule',
+      img: 'image',
+      ol: 'orderedlist',
+      ul: 'unorderedlist',
+      p: 'paragragh'
+    };
+    return Editor.exec('insert' + tagCmdMap[tag], value);
+  };
+
+  Editor.prototype.block = function(tag) {
+    return Editor.exec('formatblock', '<' + tag + '>');
+  };
+
+  Editor.prototype.link = function(url) {
+    return Editor.exec('createlink', url);
   };
 
 
@@ -95,23 +180,29 @@
 
   // return valid markdown syntax
   automd.parse = function (declare) {
-    var len = declare.length;
+    var cmd = { method: null, arg: null };
 
     if ( declare.match(/[#]{1,6}/) ) {
-      return 'h' + len;
+      cmd.method = 'block';
+      cmd.arg = 'h' + declare.length;
     } else if ( declare === '```' ) {
-      return 'pre';
+      cmd.method = 'block';
+      cmd.arg = 'pre';
     } else if ( declare === '>' ) {
-      return 'blockquote';
+      cmd.method = 'block';
+      cmd.arg = 'blockquote';
     } else if ( declare === '1.' ) {
-      return 'insertorderedlist';
+      cmd.method = 'insert';
+      cmd.arg = 'ol';
     } else if ( declare === '-' || declare === '*' ) {
-      return 'insertunorderedlist';
+      cmd.method = 'insert';
+      cmd.arg = 'ul';
     } else if ( declare.match(/(?:\.|\*|\-){3,}/) ) {
-      return 'inserthorizontalrule';
+      cmd.method = 'insert';
+      cmd.arg = 'hr';
     }
 
-    return null;
+    return cmd;
   };
 
   // Delete markdown symbols after rendered to html
@@ -148,23 +239,23 @@
   // 2. 输入汉字可以用空格结尾，也可以用鼠标点击结尾，鼠标点击结尾就没有keyup事件
 
 
-  automd.init = function(pen) {
+  automd.init = function(editor) {
     // Just triggered input method in english mode,
     // But Space can triggered when Chinese Mode
 
     var upper = this;
-    pen.on('keypress', function(e) {
+    editor.on('keypress', function(e) {
       e = Utils.Event.extend(e);
       var declare, cmd;
       var node = e.range.startContainer;
 
-      if ( e.pressing('Space') && Utils.Dom.isNode(node.nodeType, 'TEXT_NODE') ) {
+      if ( e.pressing('Space') && Utils.Dom.isNode(node, 'TEXT_NODE') ) {
         declare = node.textContent.slice(0, e.range.startOffset).trim();
         cmd = automd.parse(declare);
-        if (cmd) {
+        if ( cmd.method && cmd.arg ) {
           // Prevent to input Space
           e.preventDefault();
-          pen.execCommand(cmd);
+          editor[cmd.method](cmd.arg);
           automd._clearDeclaration(e);
         }
       }
@@ -185,26 +276,30 @@
       console.log('keypress: ' + e.which);
     });
 
-    pen.on('keyup', function(e) {
+    editor.on('keyup', function(e) {
       console.log('keyup: ' + e.which);
     });
 
-    pen.on('keydown', function(e) {
+    editor.on('keydown', function(e) {
       console.log('keydown: ' + e.which);
     });
 
     // Change event will trigger when blured
-    pen.on('change', function(e) {
+    editor.on('change', function(e) {
       console.log('change');
     });
 
-    pen.on('textinput', function(e) {
+    editor.on('textinput', function(e) {
       console.log('textinput');
     });
 
   };
 
-  // append to Pen
-  win.Pen.prototype.markdown = automd;
+  // append to editor
+  win.AutoMD = automd;
+  win.Editor = Editor;
 
 }(window));
+
+
+window.AutoMD.init(new Editor(document.querySelector('[data-toggle="pen"]')));
